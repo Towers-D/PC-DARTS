@@ -21,7 +21,7 @@ class Dataset(torch.utils.data.Dataset):
         im = self.x[idx]
         
         if self.transform is not None:
-            im.self.transform(im)
+            im = self.transform(im)
             
         return im, self.y[idx]
     
