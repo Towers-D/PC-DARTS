@@ -5,6 +5,7 @@ import glob
 import numpy as np
 import torch
 import utils
+import dataset_packer
 import logging
 import argparse
 import torch.nn as nn
@@ -55,6 +56,7 @@ fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
 
 
+
 CIFAR_CLASSES = 10
 if args.set=='cifar100':
     CIFAR_CLASSES = 100
@@ -64,7 +66,8 @@ def main():
     if not torch.cuda.is_available():
         logging.info('no gpu device available')
         sys.exit(1)
-
+    
+    
     np.random.seed(args.seed)
     torch.cuda.set_device(args.gpu)
     cudnn.benchmark = True
@@ -76,7 +79,19 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model = Network(args.init_channels, CIFAR_CLASSES, args.layers, criterion)
+    
+    if args.set not in ['cifar10', 'cifar100']:
+        train_data, valid_data, test_data, num_classes = dataset_packer.pack_dataset('AddNIST', './data')
+    else:
+        train_transform, valid_transform = utils._data_transforms_cifar10(args)
+        num_classes = CIFAR_CLASSES
+        if args.set=='cifar100':
+            train_data = dset.CIFAR100(root=args.data, train=True, download=True, transform=train_transform)
+        else:
+            train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+    
+    
+    model = Network(args.init_channels, num_classes, args.layers, criterion)
     model = model.cuda()
     logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
 
@@ -86,28 +101,29 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay)
 
-    train_transform, valid_transform = utils._data_transforms_cifar10(args)
-    if args.set=='cifar100':
-        train_data = dset.CIFAR100(root=args.data, train=True, download=True, transform=train_transform)
-    else:
-        train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+    train_queue =  torch.utils.data.DataLoader(train_data, batch_size = args.batch_size,
+                                               drop_last = True, shuffle = True,
+                                               pin_memory = True, num_workers = 2)
+    
+    valid_queue =  torch.utils.data.DataLoader(valid_data, batch_size = args.batch_size,
+                                               drop_last = True, shuffle = True,
+                                               pin_memory = True, num_workers = 2)
 
-    num_train = len(train_data)
-    indices = list(range(num_train))
-    split = int(np.floor(args.train_portion * num_train))
+    #num_train = len(train_data)
+    #indices = list(range(num_train))
+    #split = int(np.floor(args.train_portion * num_train))
 
-    train_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
-        pin_memory=True, num_workers=2)
+    #train_queue = torch.utils.data.DataLoader(
+        #train_data, batch_size=args.batch_size,
+        #sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
+        #pin_memory=True, num_workers=2)
 
-    valid_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
-        pin_memory=True, num_workers=2)
+    #valid_queue = torch.utils.data.DataLoader(
+        #train_data, batch_size=args.batch_size,
+        #sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
+        #pin_memory=True, num_workers=2)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, float(args.epochs), eta_min=args.learning_rate_min)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(args.epochs), eta_min=args.learning_rate_min)
 
     architect = Architect(model, args)
 
